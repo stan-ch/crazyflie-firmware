@@ -47,7 +47,7 @@
 
 // State
 typedef struct {
-  rangePacket_t packet;
+  rangePacket2_t packet;
   dwTime_t arrival;
   double clockCorrection_T_To_A;
 
@@ -61,9 +61,9 @@ static history_t history[LOCODECK_NR_OF_TDOA2_ANCHORS];
 
 
 // LPP packet handling
-lpsLppShortPacket_t lppPacket;
-bool lppPacketToSend;
-int lppPacketSendTryCounter;
+static lpsLppShortPacket_t lppPacket;
+static bool lppPacketToSend;
+static int lppPacketSendTryCounter;
 
 // Log data
 static float logUwbTdoaDistDiff[LOCODECK_NR_OF_TDOA2_ANCHORS];
@@ -107,9 +107,6 @@ static uint64_t truncateToAnchorTimeStamp(uint64_t fullTimeStamp) {
 }
 
 static void enqueueTDOA(uint8_t anchorA, uint8_t anchorB, double distanceDiff) {
-  point_t estimatedPos;
-  estimatorKalmanGetEstimatedPos(&estimatedPos);
-
   tdoaMeasurement_t tdoa = {
     .stdDev = MEASUREMENT_NOISE_STD,
     .distanceDiff = distanceDiff,
@@ -118,7 +115,7 @@ static void enqueueTDOA(uint8_t anchorA, uint8_t anchorB, double distanceDiff) {
     .anchorPosition[1] = options->anchorPosition[anchorB]
   };
 
-  if (outlierFilterValidateTdoa(&tdoa, &estimatedPos)) {
+  if (outlierFilterValidateTdoa(&tdoa)) {
     if (options->combinedAnchorPositionOk ||
         (options->anchorPosition[anchorA].timestamp && options->anchorPosition[anchorB].timestamp)) {
       stats.packetsToEstimator++;
@@ -143,7 +140,7 @@ static bool isSeqNrConsecutive(uint8_t prevSeqNr, uint8_t currentSeqNr) {
 // rxAr_by_An_in_cl_An should be interpreted as "The time when packet was received from the Reference
 // Anchor by Anchor N expressed in the clock of Anchor N"
 
-static bool calcClockCorrection(double* clockCorrection, const uint8_t anchor, const rangePacket_t* packet, const dwTime_t* arrival) {
+static bool calcClockCorrection(double* clockCorrection, const uint8_t anchor, const rangePacket2_t* packet, const dwTime_t* arrival) {
 
   if (! isSeqNrConsecutive(history[anchor].packet.sequenceNrs[anchor], packet->sequenceNrs[anchor])) {
     return false;
@@ -161,7 +158,7 @@ static bool calcClockCorrection(double* clockCorrection, const uint8_t anchor, c
   return true;
 }
 
-static bool calcDistanceDiff(float* tdoaDistDiff, const uint8_t previousAnchor, const uint8_t anchor, const rangePacket_t* packet, const dwTime_t* arrival) {
+static bool calcDistanceDiff(float* tdoaDistDiff, const uint8_t previousAnchor, const uint8_t anchor, const rangePacket2_t* packet, const dwTime_t* arrival) {
   const bool isSeqNrInTagOk = isSeqNrConsecutive(history[anchor].packet.sequenceNrs[previousAnchor], packet->sequenceNrs[previousAnchor]);
   const bool isSeqNrInAnchorOk = isSeqNrConsecutive(history[anchor].packet.sequenceNrs[anchor], packet->sequenceNrs[anchor]);
   if (! (isSeqNrInTagOk && isSeqNrInAnchorOk)) {
@@ -194,7 +191,7 @@ static bool calcDistanceDiff(float* tdoaDistDiff, const uint8_t previousAnchor, 
   return true;
 }
 
-static void addToLog(const uint8_t anchor, const uint8_t previousAnchor, const float tdoaDistDiff, const rangePacket_t* packet) {
+static void addToLog(const uint8_t anchor, const uint8_t previousAnchor, const float tdoaDistDiff, const rangePacket2_t* packet) {
   // Only store diffs for anchors when we have consecutive anchor ids. In case of packet
   // loss we can get ranging between any anchors and that messes up the graphs.
   if (((previousAnchor + 1) & 0x07) == anchor) {
@@ -272,7 +269,7 @@ static bool rxcallback(dwDevice_t *dev) {
   dwGetReceiveTimestamp(dev, &arrival);
 
   if (anchor < LOCODECK_NR_OF_TDOA2_ANCHORS) {
-    const rangePacket_t* packet = (rangePacket_t*)rxPacket.payload;
+    const rangePacket2_t* packet = (rangePacket2_t*)rxPacket.payload;
 
 #ifdef LPS_TDOA2_SYNCHRONIZATION_VARIABLE
     // Storing timing
@@ -295,7 +292,7 @@ static bool rxcallback(dwDevice_t *dev) {
     }
 
     history[anchor].arrival.full = arrival.full;
-    memcpy(&history[anchor].packet, packet, sizeof(rangePacket_t));
+    memcpy(&history[anchor].packet, packet, sizeof(rangePacket2_t));
 
     history[anchor].anchorStatusTimeout = xTaskGetTickCount() + ANCHOR_OK_TIMEOUT;
 
